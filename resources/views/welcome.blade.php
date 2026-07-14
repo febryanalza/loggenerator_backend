@@ -165,8 +165,8 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
             <div class="text-center">
                 <div class="flex justify-center items-center space-x-6 mb-8 animate-fade-in-up">
-                    <img src="{{ asset('storage/image/unplogo.png') }}" alt="Logo UNP" class="h-20 md:h-24 drop-shadow-md">
-                    <img src="{{ asset('storage/image/untllogo.png') }}" alt="Logo UNTL" class="h-20 md:h-24 drop-shadow-md">
+                    <img src="{{ asset('image/unplogo.png') }}" alt="Logo UNP" class="h-20 md:h-24 drop-shadow-md">
+                    <img src="{{ asset('image/untllogo.png') }}" alt="Logo UNTL" class="h-20 md:h-24 drop-shadow-md">
                 </div>
                 <h1 class="text-4xl md:text-6xl font-bold text-white mb-6 animate-fade-in-up">
                     {{ $companyData['name'] }}
@@ -222,7 +222,7 @@
             <div class="flex justify-center mb-16">
                 <div class="bg-gradient-to-br from-indigo-50 to-purple-50 p-8 rounded-2xl border border-indigo-100 shadow-md max-w-sm w-full text-center transform hover:scale-105 transition-all duration-300">
                     <div class="relative w-36 h-36 mx-auto mb-4">
-                        <img src="{{ asset('storage/image/leader.jpeg') }}" alt="Agariadne Dwinggo Samala" class="rounded-full w-full h-full object-cover shadow-lg border-4 border-indigo-600">
+                        <img src="{{ asset('image/leader.jpeg') }}" alt="Agariadne Dwinggo Samala" class="rounded-full w-full h-full object-cover shadow-lg border-4 border-indigo-600">
                         <span class="absolute bottom-0 right-0 bg-indigo-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">Ketua</span>
                     </div>
                     <h3 class="text-xl font-bold text-gray-900">Agariadne Dwinggo Samala</h3>
@@ -236,7 +236,7 @@
                 <!-- Member 1 -->
                 <div class="bg-gray-50 p-6 rounded-xl border border-gray-100 shadow-sm text-center transform hover:-translate-y-2 transition-all duration-300">
                     <div class="relative w-28 h-28 mx-auto mb-4">
-                        <img src="{{ asset('storage/image/member1.webp') }}" alt="Akrimullah Mubai" class="rounded-full w-full h-full object-cover shadow border-2 border-indigo-400">
+                        <img src="{{ asset('image/member1.webp') }}" alt="Akrimullah Mubai" class="rounded-full w-full h-full object-cover shadow border-2 border-indigo-400">
                         <span class="absolute bottom-0 right-0 bg-indigo-500 text-white text-xs font-semibold px-2.5 py-0.5 rounded-full shadow">Anggota 1</span>
                     </div>
                     <h3 class="text-lg font-bold text-gray-900">Akrimullah Mubai</h3>
@@ -247,7 +247,7 @@
                 <!-- Member 2 -->
                 <div class="bg-gray-50 p-6 rounded-xl border border-gray-100 shadow-sm text-center transform hover:-translate-y-2 transition-all duration-300">
                     <div class="relative w-28 h-28 mx-auto mb-4">
-                        <img src="{{ asset('storage/image/member2.jpg') }}" alt="Ilmiyati Rahmy Jasril" class="rounded-full w-full h-full object-cover shadow border-2 border-indigo-400">
+                        <img src="{{ asset('image/member2.jpg') }}" alt="Ilmiyati Rahmy Jasril" class="rounded-full w-full h-full object-cover shadow border-2 border-indigo-400">
                         <span class="absolute bottom-0 right-0 bg-indigo-500 text-white text-xs font-semibold px-2.5 py-0.5 rounded-full shadow">Anggota 2</span>
                     </div>
                     <h3 class="text-lg font-bold text-gray-900">Ilmiyati Rahmy Jasril</h3>
@@ -258,7 +258,7 @@
                 <!-- Member 3 -->
                 <div class="bg-gray-50 p-6 rounded-xl border border-gray-100 shadow-sm text-center transform hover:-translate-y-2 transition-all duration-300">
                     <div class="relative w-28 h-28 mx-auto mb-4">
-                        <img src="{{ asset('storage/image/member3.jpg') }}" alt="Febryan Al Zaqri" class="rounded-full w-full h-full object-cover shadow border-2 border-indigo-400">
+                        <img src="{{ asset('image/member3.jpg') }}" alt="Febryan Al Zaqri" class="rounded-full w-full h-full object-cover shadow border-2 border-indigo-400">
                         <span class="absolute bottom-0 right-0 bg-indigo-500 text-white text-xs font-semibold px-2.5 py-0.5 rounded-full shadow">Anggota 3</span>
                     </div>
                     <h3 class="text-lg font-bold text-gray-900">Febryan Al Zaqri</h3>
@@ -269,7 +269,7 @@
                 <!-- Member 4 -->
                 <div class="bg-gray-50 p-6 rounded-xl border border-gray-100 shadow-sm text-center transform hover:-translate-y-2 transition-all duration-300">
                     <div class="relative w-28 h-28 mx-auto mb-4">
-                        <img src="{{ asset('storage/image/member4.png') }}" alt="Milla Hanifa" class="rounded-full w-full h-full object-cover shadow border-2 border-indigo-400">
+                        <img src="{{ asset('image/member4.png') }}" alt="Milla Hanifa" class="rounded-full w-full h-full object-cover shadow border-2 border-indigo-400">
                         <span class="absolute bottom-0 right-0 bg-indigo-500 text-white text-xs font-semibold px-2.5 py-0.5 rounded-full shadow">Anggota 4</span>
                     </div>
                     <h3 class="text-lg font-bold text-gray-900">Milla Hanifa</h3>
@@ -280,7 +280,7 @@
                 <!-- Member 5 -->
                 <div class="bg-gray-50 p-6 rounded-xl border border-gray-100 shadow-sm text-center transform hover:-translate-y-2 transition-all duration-300">
                     <div class="relative w-28 h-28 mx-auto mb-4">
-                        <img src="{{ asset('storage/image/member5.png') }}" alt="Kurnia Shandi" class="rounded-full w-full h-full object-cover shadow border-2 border-indigo-400">
+                        <img src="{{ asset('image/member5.png') }}" alt="Kurnia Shandi" class="rounded-full w-full h-full object-cover shadow border-2 border-indigo-400">
                         <span class="absolute bottom-0 right-0 bg-indigo-500 text-white text-xs font-semibold px-2.5 py-0.5 rounded-full shadow">Anggota 5</span>
                     </div>
                     <h3 class="text-lg font-bold text-gray-900">Kurnia Shandi</h3>
@@ -291,7 +291,7 @@
                 <!-- Member 6 -->
                 <div class="bg-gray-50 p-6 rounded-xl border border-gray-100 shadow-sm text-center transform hover:-translate-y-2 transition-all duration-300">
                     <div class="relative w-28 h-28 mx-auto mb-4">
-                        <img src="{{ asset('storage/image/member6.jpg') }}" alt="Betrina Berlian" class="rounded-full w-full h-full object-cover shadow border-2 border-indigo-400">
+                        <img src="{{ asset('image/member6.jpg') }}" alt="Betrina Berlian" class="rounded-full w-full h-full object-cover shadow border-2 border-indigo-400">
                         <span class="absolute bottom-0 right-0 bg-indigo-500 text-white text-xs font-semibold px-2.5 py-0.5 rounded-full shadow">Anggota 6</span>
                     </div>
                     <h3 class="text-lg font-bold text-gray-900">Betrina Berlian</h3>
