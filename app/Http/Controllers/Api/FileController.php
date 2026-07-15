@@ -5,97 +5,94 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Log;
 
 class FileController extends Controller
 {
     /**
      * Get logbook image by filename.
      *
-     * Since images are now stored on Amazon S3 (public bucket),
-     * this endpoint redirects to the S3 URL directly for better performance.
-     * The S3 URL is cached by the browser via the redirect response.
+     * Since images are stored on Supabase Storage (public bucket), this
+     * endpoint redirects to the Supabase public URL for direct browser access.
      *
-     * @param string $filename
+     * @param  string  $filename
      * @return \Illuminate\Http\RedirectResponse
      */
     public function getLogbookImage($filename)
     {
         try {
-            // Sanitize filename to prevent directory traversal
-            $filename = basename($filename);
+            $filename = basename($filename); // Prevent directory traversal
 
-            // Check if file exists on S3
-            if (!Storage::disk('s3_logbook')->exists($filename)) {
-                abort(404, 'Image not found');
-            }
+            // Generate the public Supabase URL and redirect
+            $url = Storage::disk('s3_logbook')->url($filename);
 
-            // Redirect to the public S3 URL (permanent redirect for caching)
-            $s3Url = Storage::disk('s3_logbook')->url($filename);
-
-            return redirect()->away($s3Url, 301);
+            return redirect()->away($url, 301);
         } catch (\Exception $e) {
-            abort(500, 'Error retrieving image: ' . $e->getMessage());
+            Log::error('FileController@getLogbookImage error: ' . $e->getMessage());
+            abort(500, 'Error retrieving image.');
         }
     }
 
     /**
      * Get avatar image by filename.
      *
-     * Since images are now stored on Amazon S3 (public bucket),
-     * this endpoint redirects to the S3 URL directly for better performance.
+     * Since images are stored on Supabase Storage (public bucket), this
+     * endpoint redirects to the Supabase public URL for direct browser access.
      *
-     * @param string $filename
+     * @param  string  $filename
      * @return \Illuminate\Http\RedirectResponse
      */
     public function getAvatarImage($filename)
     {
         try {
-            // Sanitize filename to prevent directory traversal
-            $filename = basename($filename);
+            $filename = basename($filename); // Prevent directory traversal
 
-            // Check if file exists on S3
-            if (!Storage::disk('s3_avatars')->exists($filename)) {
-                abort(404, 'Avatar image not found');
-            }
+            // Generate the public Supabase URL and redirect
+            $url = Storage::disk('s3_avatars')->url($filename);
 
-            // Redirect to the public S3 URL (permanent redirect for caching)
-            $s3Url = Storage::disk('s3_avatars')->url($filename);
-
-            return redirect()->away($s3Url, 301);
+            return redirect()->away($url, 301);
         } catch (\Exception $e) {
-            abort(500, 'Error retrieving avatar image: ' . $e->getMessage());
+            Log::error('FileController@getAvatarImage error: ' . $e->getMessage());
+            abort(500, 'Error retrieving avatar image.');
         }
     }
 
     /**
-     * Upload a single image file to Amazon S3.
+     * Upload a single image to Supabase Storage (via S3-compatible API).
      *
      * Accepts multipart/form-data with an 'image' field.
-     * Returns the public S3 URL of the uploaded file.
+     * Returns the Supabase public URL of the uploaded file.
      *
-     * @param \Illuminate\Http\Request $request
+     * NOTE: File visibility (public/private) is controlled by the bucket's
+     * Row Level Security (RLS) policy in Supabase, not by the upload call.
+     *
+     * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
      */
     public function uploadImage(Request $request)
     {
         try {
             $request->validate([
-                'image' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:5120' // Max 5MB
+                'image' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:5120', // Max 5MB
             ]);
 
             $image    = $request->file('image');
-            $filename = 'logbook_' . time() . '_' . uniqid() . '.' . $image->getClientOriginalExtension();
+            $ext      = strtolower($image->getClientOriginalExtension());
+            $filename = 'logbook_' . time() . '_' . uniqid() . '.' . $ext;
 
-            // Store the image on the S3 logbook disk (root: logbook_images/)
-            // The file is stored with public visibility so it can be accessed directly via URL
-            Storage::disk('s3_logbook')->putFileAs('', $image, $filename, [
-                'visibility' => 'public',
-                'ContentType' => $image->getMimeType(),
-            ]);
+            // Upload to Supabase Storage via s3_logbook disk (root: logbook_images/)
+            // Note: Do NOT pass 'visibility' option — Supabase does not support per-object ACLs.
+            //       Public access is governed by the bucket's RLS policy.
+            $stored = Storage::disk('s3_logbook')->putFileAs('', $image, $filename);
 
-            // Generate the public S3 URL
+            if ($stored === false) {
+                throw new \RuntimeException('Storage::putFileAs returned false. Check Supabase credentials and bucket policy.');
+            }
+
+            // Generate the public Supabase URL
             $url = Storage::disk('s3_logbook')->url($filename);
+
+            Log::info('Image uploaded to Supabase', ['path' => 'logbook_images/' . $filename, 'url' => $url]);
 
             return response()->json([
                 'success' => true,
@@ -103,9 +100,9 @@ class FileController extends Controller
                 'data'    => [
                     'filename' => $filename,
                     'url'      => $url,
-                    'storage'  => 's3',
+                    'storage'  => 'supabase',
                     'path'     => 'logbook_images/' . $filename,
-                ]
+                ],
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
@@ -114,9 +111,13 @@ class FileController extends Controller
                 'errors'  => $e->errors(),
             ], 422);
         } catch (\Exception $e) {
+            Log::error('FileController@uploadImage error: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+            ]);
+
             return response()->json([
                 'success' => false,
-                'message' => 'Error uploading image: ' . $e->getMessage()
+                'message' => 'Error uploading image: ' . $e->getMessage(),
             ], 500);
         }
     }

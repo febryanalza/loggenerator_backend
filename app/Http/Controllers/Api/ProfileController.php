@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\URL;
 
@@ -360,12 +361,15 @@ class ProfileController extends Controller
     }
 
     /**
-     * Delete old avatar from Amazon S3 (if it is an S3-hosted file).
+     * Delete old avatar from Supabase Storage (if it is our hosted file).
      *
-     * We only delete files that we control (hosted on our S3 bucket).
-     * External avatars (e.g., Google profile pictures) are never deleted.
+     * We only delete files that we control (hosted on our Supabase project).
+     * External avatars (e.g., Google profile pictures) are never touched.
      *
-     * @param string|null $avatarUrl
+     * Detection: checks if the URL contains 'supabase.co' — Supabase Storage
+     * public URLs always contain this domain.
+     *
+     * @param  string|null  $avatarUrl
      * @return void
      */
     private function deleteOldAvatar(?string $avatarUrl): void
@@ -374,15 +378,20 @@ class ProfileController extends Controller
             return;
         }
 
-        // Only delete if the URL points to our S3 bucket (amazonaws.com or custom AWS_URL)
-        $awsBucket = env('AWS_BUCKET', '');
-        $awsRegion = env('AWS_DEFAULT_REGION', '');
-        $s3Domain  = "{$awsBucket}.s3.{$awsRegion}.amazonaws.com";
-
-        if (str_contains($avatarUrl, $s3Domain) || str_contains($avatarUrl, "{$awsBucket}.s3.")) {
+        // Supabase public URLs contain 'supabase.co'
+        // Only delete files we own — skip Google avatars, Gravatar, etc.
+        if (str_contains($avatarUrl, 'supabase.co')) {
             $filename = basename(parse_url($avatarUrl, PHP_URL_PATH));
             if (!empty($filename)) {
-                Storage::disk('s3_avatars')->delete($filename);
+                try {
+                    Storage::disk('s3_avatars')->delete($filename);
+                    Log::info('Deleted old avatar from Supabase', ['filename' => $filename]);
+                } catch (\Exception $e) {
+                    // Non-critical: log but don't throw — let the update proceed
+                    Log::warning('Could not delete old avatar from Supabase: ' . $e->getMessage(), [
+                        'url' => $avatarUrl,
+                    ]);
+                }
             }
         }
     }
@@ -416,25 +425,31 @@ class ProfileController extends Controller
     }
 
     /**
-     * Save base64-encoded image to Amazon S3 (s3_avatars disk).
+     * Save base64-encoded image to Supabase Storage (s3_avatars disk).
      *
-     * @param string $base64Image  Base64 string with optional data URI prefix
-     * @param string $userId
-     * @return string              Public S3 URL of the uploaded avatar
+     * NOTE: Supabase Storage does NOT support per-object ACL/visibility options.
+     * Public access is controlled by the bucket's Row Level Security (RLS) policy
+     * configured in the Supabase Dashboard.
+     *
+     * @param  string  $base64Image  Base64 string with optional data URI prefix
+     * @param  string  $userId
+     * @return string                Public Supabase URL of the uploaded avatar
+     *
+     * @throws \RuntimeException if the upload fails
      */
     private function saveBase64Image($base64Image, $userId)
     {
         // Extract image data and MIME type from the base64 string
         if (str_starts_with($base64Image, 'data:image/')) {
-            $imageData    = explode(',', $base64Image);
-            $imageType    = explode(';', explode('/', $imageData[0])[1])[0];
-            $imageContent = base64_decode($imageData[1]);
+            [$meta, $rawData] = explode(',', $base64Image, 2);
+            $imageType        = explode(';', explode('/', $meta)[1])[0]; // e.g. "png"
+            $imageContent     = base64_decode($rawData);
         } else {
             $imageContent = base64_decode($base64Image);
-            $imageType    = 'jpg'; // Default to jpg
+            $imageType    = 'jpg';
         }
 
-        // Sanitize extension
+        // Sanitize extension to allowed image types only
         $allowedTypes = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
         if (!in_array(strtolower($imageType), $allowedTypes)) {
             $imageType = 'jpg';
@@ -443,18 +458,33 @@ class ProfileController extends Controller
         // Generate a unique filename
         $filename = 'avatar_' . $userId . '_' . time() . '.' . strtolower($imageType);
 
-        // Determine the MIME type for the Content-Type header
-        $mimeMap   = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'gif' => 'image/gif', 'webp' => 'image/webp'];
-        $mimeType  = $mimeMap[strtolower($imageType)] ?? 'image/jpeg';
+        // Map extension → MIME type for the Content-Type header
+        $mimeMap  = [
+            'jpg'  => 'image/jpeg',
+            'jpeg' => 'image/jpeg',
+            'png'  => 'image/png',
+            'gif'  => 'image/gif',
+            'webp' => 'image/webp',
+        ];
+        $mimeType = $mimeMap[strtolower($imageType)] ?? 'image/jpeg';
 
-        // Upload to Amazon S3 (s3_avatars disk root: avatars/)
-        Storage::disk('s3_avatars')->put($filename, $imageContent, [
-            'visibility'  => 'public',
+        // Upload to Supabase Storage (s3_avatars disk — root: avatars/)
+        // Do NOT pass 'visibility' => 'public': Supabase does not support per-object ACL.
+        // Public access is governed by the bucket's RLS policy in Supabase Dashboard.
+        $result = Storage::disk('s3_avatars')->put($filename, $imageContent, [
             'ContentType' => $mimeType,
         ]);
 
-        // Return the public S3 URL
-        return Storage::disk('s3_avatars')->url($filename);
+        if ($result === false) {
+            throw new \RuntimeException('Failed to upload avatar to Supabase Storage.');
+        }
+
+        // Return the public Supabase URL
+        $url = Storage::disk('s3_avatars')->url($filename);
+
+        Log::info('Avatar uploaded to Supabase', ['filename' => $filename, 'url' => $url]);
+
+        return $url;
     }
 
     /**

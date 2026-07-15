@@ -157,13 +157,22 @@ class LogbookDataController extends Controller
             // Generate a unique filename
             $filename = 'logbook_' . time() . '_' . uniqid() . '.' . strtolower($extension);
 
-            // Upload decoded image to Amazon S3 (s3_logbook disk root: logbook_images/)
-            Storage::disk('s3_logbook')->put($filename, base64_decode($imageData), [
-                'visibility'  => 'public',
+            // Upload decoded image to Supabase Storage (s3_logbook disk root: logbook_images/)
+            // NOTE: Do NOT pass 'visibility' => 'public': Supabase does not support per-object ACL.
+            // Public access is governed by the bucket's RLS policy in Supabase Dashboard.
+            $result = Storage::disk('s3_logbook')->put($filename, base64_decode($imageData), [
                 'ContentType' => $mimeType,
             ]);
 
-            // Replace the base64 value with the public S3 URL
+            if ($result === false) {
+                Log::error('Failed to upload logbook image to Supabase', ['field' => $fieldName, 'filename' => $filename]);
+                // Skip this field — don't throw, let other fields proceed
+                continue;
+            }
+
+            Log::info('Logbook image uploaded to Supabase', ['path' => 'logbook_images/' . $filename]);
+
+            // Replace the base64 value with the public Supabase URL
             $processedData[$fieldName] = Storage::disk('s3_logbook')->url($filename);
         }
 
@@ -621,10 +630,10 @@ class LogbookDataController extends Controller
     }
 
     /**
-     * Delete image files associated with a logbook entry from Amazon S3.
+     * Delete image files associated with a logbook entry from Supabase Storage.
      *
-     * Only deletes files that are hosted on our S3 bucket.
-     * Files hosted elsewhere (external URLs) are not touched.
+     * Only deletes files hosted on our Supabase project (URL contains 'supabase.co').
+     * External image URLs are never touched.
      *
      * @param  \App\Models\LogbookData  $logbookData
      * @return void
@@ -632,7 +641,7 @@ class LogbookDataController extends Controller
     private function deleteImageFiles(LogbookData $logbookData)
     {
         try {
-            // Get image type fields
+            // Get image type fields from the template
             $imageFields = $logbookData->template->fields->filter(function ($field) {
                 return json_decode($field->data_type) === 'image';
             })->pluck('name')->toArray();
@@ -641,25 +650,32 @@ class LogbookDataController extends Controller
                 return;
             }
 
-            $awsBucket = env('AWS_BUCKET', '');
-
-            // Delete image files from S3
+            // Delete each image from Supabase Storage
             foreach ($imageFields as $fieldName) {
-                if (!empty($logbookData->data[$fieldName])) {
-                    $imageUrl = $logbookData->data[$fieldName];
+                if (empty($logbookData->data[$fieldName])) {
+                    continue;
+                }
 
-                    // Only delete files hosted on our S3 bucket
-                    if (str_contains($imageUrl, $awsBucket) && str_contains($imageUrl, 'amazonaws.com')) {
-                        $filename = basename(parse_url($imageUrl, PHP_URL_PATH));
-                        if (!empty($filename)) {
+                $imageUrl = $logbookData->data[$fieldName];
+
+                // Only delete files hosted on our Supabase project
+                if (str_contains($imageUrl, 'supabase.co')) {
+                    $filename = basename(parse_url($imageUrl, PHP_URL_PATH));
+                    if (!empty($filename)) {
+                        try {
                             Storage::disk('s3_logbook')->delete($filename);
+                            Log::info('Deleted logbook image from Supabase', ['filename' => $filename]);
+                        } catch (\Exception $inner) {
+                            Log::warning('Could not delete logbook image: ' . $inner->getMessage(), [
+                                'url' => $imageUrl,
+                            ]);
                         }
                     }
                 }
             }
         } catch (\Exception $e) {
-            // Log error but don't fail the deletion
-            Log::error('Failed to delete S3 image files: ' . $e->getMessage());
+            // Non-critical: log but do not fail the parent delete operation
+            Log::error('deleteImageFiles error: ' . $e->getMessage());
         }
     }
 
