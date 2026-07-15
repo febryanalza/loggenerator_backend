@@ -111,11 +111,9 @@ class ProfileController extends Controller
             if ($request->has('avatar_url')) {
                 $newAvatarPath = $this->handleAvatarUpload($request->avatar_url, $user);
                 if ($newAvatarPath !== $user->avatar_url) {
-                    // Delete old avatar if exists and is a local file
-                    if ($user->avatar_url && str_contains($user->avatar_url, 'storage/avatars/')) {
-                        Storage::disk('avatar')->delete(basename($user->avatar_url));
-                    }
-                    
+                    // Delete old avatar from S3 if it exists and is an S3-hosted file
+                    $this->deleteOldAvatar($user->avatar_url);
+
                     $user->avatar_url = $newAvatarPath;
                     $changes[] = 'avatar_url';
                 }
@@ -250,9 +248,8 @@ class ProfileController extends Controller
             if ($request->has('avatar_url')) {
                 $newAvatarPath = $this->handleAvatarUpload($request->avatar_url, $user);
                 if ($newAvatarPath !== $user->avatar_url) {
-                    if ($user->avatar_url && str_contains($user->avatar_url, 'storage/avatars/')) {
-                        Storage::disk('avatar')->delete(basename($user->avatar_url));
-                    }
+                    // Delete old avatar from S3 if it is an S3-hosted file
+                    $this->deleteOldAvatar($user->avatar_url);
 
                     $user->avatar_url = $newAvatarPath;
                     $changes[] = 'avatar_url';
@@ -333,8 +330,13 @@ class ProfileController extends Controller
     /**
      * Handle avatar upload (base64 or URL)
      *
-     * @param string $avatarData
-     * @param User $user
+     * Supports three input formats:
+     * 1. null/empty  → remove avatar (return null)
+     * 2. URL string  → use as-is (external URL or existing S3 URL)
+     * 3. Base64 data → decode and upload to Amazon S3
+     *
+     * @param string|null $avatarData
+     * @param User        $user
      * @return string|null
      */
     private function handleAvatarUpload($avatarData, User $user)
@@ -344,22 +346,45 @@ class ProfileController extends Controller
             return null;
         }
 
-        // If it's already a URL (like existing avatar or Google avatar), return as is
+        // If it's already a valid URL (existing S3 URL, Google avatar, etc.), return as-is
         if (filter_var($avatarData, FILTER_VALIDATE_URL)) {
             return $avatarData;
         }
 
-        // If it's base64 image data
+        // If it's base64 image data → decode and upload to S3
         if ($this->isBase64Image($avatarData)) {
             return $this->saveBase64Image($avatarData, $user->id);
         }
 
-        // If it's a relative path, convert to full URL
-        if (is_string($avatarData) && !str_starts_with($avatarData, 'http')) {
-            return url('storage/avatars/' . $avatarData);
+        return $avatarData;
+    }
+
+    /**
+     * Delete old avatar from Amazon S3 (if it is an S3-hosted file).
+     *
+     * We only delete files that we control (hosted on our S3 bucket).
+     * External avatars (e.g., Google profile pictures) are never deleted.
+     *
+     * @param string|null $avatarUrl
+     * @return void
+     */
+    private function deleteOldAvatar(?string $avatarUrl): void
+    {
+        if (empty($avatarUrl)) {
+            return;
         }
 
-        return $avatarData;
+        // Only delete if the URL points to our S3 bucket (amazonaws.com or custom AWS_URL)
+        $awsBucket = env('AWS_BUCKET', '');
+        $awsRegion = env('AWS_DEFAULT_REGION', '');
+        $s3Domain  = "{$awsBucket}.s3.{$awsRegion}.amazonaws.com";
+
+        if (str_contains($avatarUrl, $s3Domain) || str_contains($avatarUrl, "{$awsBucket}.s3.")) {
+            $filename = basename(parse_url($avatarUrl, PHP_URL_PATH));
+            if (!empty($filename)) {
+                Storage::disk('s3_avatars')->delete($filename);
+            }
+        }
     }
 
     /**
@@ -391,35 +416,45 @@ class ProfileController extends Controller
     }
 
     /**
-     * Save base64 image to avatar storage
+     * Save base64-encoded image to Amazon S3 (s3_avatars disk).
      *
-     * @param string $base64Image
+     * @param string $base64Image  Base64 string with optional data URI prefix
      * @param string $userId
-     * @return string
+     * @return string              Public S3 URL of the uploaded avatar
      */
     private function saveBase64Image($base64Image, $userId)
     {
-        // Extract image data and type
+        // Extract image data and MIME type from the base64 string
         if (str_starts_with($base64Image, 'data:image/')) {
-            $imageData = explode(',', $base64Image);
-            $imageType = explode(';', explode('/', $imageData[0])[1])[0];
+            $imageData    = explode(',', $base64Image);
+            $imageType    = explode(';', explode('/', $imageData[0])[1])[0];
             $imageContent = base64_decode($imageData[1]);
         } else {
             $imageContent = base64_decode($base64Image);
-            $imageType = 'jpg'; // Default to jpg
+            $imageType    = 'jpg'; // Default to jpg
         }
 
-        // Generate unique filename
-        $filename = 'avatar_' . $userId . '_' . time() . '.' . $imageType;
-        
-        // Ensure avatar directory exists
-        Storage::disk('avatar')->makeDirectory('');
-        
-        // Save image
-        Storage::disk('avatar')->put($filename, $imageContent);
-        
-        // Return full URL
-        return url('storage/avatars/' . $filename);
+        // Sanitize extension
+        $allowedTypes = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+        if (!in_array(strtolower($imageType), $allowedTypes)) {
+            $imageType = 'jpg';
+        }
+
+        // Generate a unique filename
+        $filename = 'avatar_' . $userId . '_' . time() . '.' . strtolower($imageType);
+
+        // Determine the MIME type for the Content-Type header
+        $mimeMap   = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'gif' => 'image/gif', 'webp' => 'image/webp'];
+        $mimeType  = $mimeMap[strtolower($imageType)] ?? 'image/jpeg';
+
+        // Upload to Amazon S3 (s3_avatars disk root: avatars/)
+        Storage::disk('s3_avatars')->put($filename, $imageContent, [
+            'visibility'  => 'public',
+            'ContentType' => $mimeType,
+        ]);
+
+        // Return the public S3 URL
+        return Storage::disk('s3_avatars')->url($filename);
     }
 
     /**
@@ -441,10 +476,8 @@ class ProfileController extends Controller
         }
         
         try {
-            // Delete file if it's stored locally (contains storage/avatars path)
-            if ($user->avatar_url && str_contains($user->avatar_url, 'storage/avatars/')) {
-                Storage::disk('avatar')->delete(basename($user->avatar_url));
-            }
+            // Delete file from S3 if it is an S3-hosted avatar
+            $this->deleteOldAvatar($user->avatar_url);
             
             // Clear avatar_url field
             $user->avatar_url = null;

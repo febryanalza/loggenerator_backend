@@ -47,15 +47,13 @@ return [
             'report' => false,
         ],
 
-        'avatar' => [
-            'driver' => 'local',
-            'root' => storage_path('app/public/avatars'),
-            'url' => env('APP_URL').'/storage/avatars',
-            'visibility' => 'public',
-            'throw' => false,
-            'report' => false,
-        ],
-
+        /*
+        |--------------------------------------------------------------------------
+        | Amazon S3 - Main Disk
+        |--------------------------------------------------------------------------
+        | General-purpose S3 disk. Paths are relative to the bucket root.
+        | Used when you need fine-grained control over the path.
+        */
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),
@@ -65,7 +63,51 @@ return [
             'url' => env('AWS_URL'),
             'endpoint' => env('AWS_ENDPOINT'),
             'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
-            'throw' => false,
+            'throw' => true,
+            'report' => false,
+        ],
+
+        /*
+        |--------------------------------------------------------------------------
+        | Amazon S3 - Avatar Disk
+        |--------------------------------------------------------------------------
+        | Dedicated disk for user avatar images.
+        | All files are stored under the 'avatars/' prefix within the S3 bucket.
+        | URL pattern: https://{bucket}.s3.{region}.amazonaws.com/avatars/{filename}
+        */
+        's3_avatars' => [
+            'driver' => 's3',
+            'key' => env('AWS_ACCESS_KEY_ID'),
+            'secret' => env('AWS_SECRET_ACCESS_KEY'),
+            'region' => env('AWS_DEFAULT_REGION'),
+            'bucket' => env('AWS_BUCKET'),
+            'url' => env('AWS_URL'),
+            'endpoint' => env('AWS_ENDPOINT'),
+            'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
+            'root' => 'avatars',
+            'throw' => true,
+            'report' => false,
+        ],
+
+        /*
+        |--------------------------------------------------------------------------
+        | Amazon S3 - Logbook Images Disk
+        |--------------------------------------------------------------------------
+        | Dedicated disk for logbook entry images.
+        | All files are stored under the 'logbook_images/' prefix within the S3 bucket.
+        | URL pattern: https://{bucket}.s3.{region}.amazonaws.com/logbook_images/{filename}
+        */
+        's3_logbook' => [
+            'driver' => 's3',
+            'key' => env('AWS_ACCESS_KEY_ID'),
+            'secret' => env('AWS_SECRET_ACCESS_KEY'),
+            'region' => env('AWS_DEFAULT_REGION'),
+            'bucket' => env('AWS_BUCKET'),
+            'url' => env('AWS_URL'),
+            'endpoint' => env('AWS_ENDPOINT'),
+            'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
+            'root' => 'logbook_images',
+            'throw' => true,
             'report' => false,
         ],
 

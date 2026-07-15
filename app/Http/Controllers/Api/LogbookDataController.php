@@ -101,52 +101,72 @@ class LogbookDataController extends Controller
     /**
      * Process any image uploads in the data.
      *
-     * @param array $data
-     * @param \App\Models\LogbookTemplate $template
+     * For fields of type 'image', if the value is a base64-encoded string,
+     * it is decoded and uploaded to Amazon S3 (s3_logbook disk).
+     * The field value is then replaced with the public S3 URL.
+     *
+     * @param array                        $data
+     * @param \App\Models\LogbookTemplate  $template
      * @return array
      */
     private function processImageUploads(array $data, LogbookTemplate $template)
     {
-        // Get image type fields
+        // Get image type fields from the template
         $imageFields = $template->fields->filter(function ($field) {
             return json_decode($field->data_type) === 'image';
         })->pluck('name')->toArray();
-        
+
         // Skip if no image fields
         if (empty($imageFields)) {
             return $data;
         }
-        
+
         $processedData = $data;
-        
-        // Ensure directory exists
-        $directory = 'logbook_images';
-        if (!Storage::disk('public')->exists($directory)) {
-            Storage::disk('public')->makeDirectory($directory);
-        }
-        
+
         // Process each image field
         foreach ($imageFields as $fieldName) {
             // Skip if field not provided or not a valid base64 image
             if (!isset($data[$fieldName]) || !$this->isBase64Image($data[$fieldName])) {
                 continue;
             }
-            
+
             // Decode base64 image
             $base64Image = $data[$fieldName];
-            $imageData = explode(',', $base64Image);
-            $imageData = isset($imageData[1]) ? $imageData[1] : $imageData[0];
-            
+            $mimeType    = 'image/jpeg'; // Default MIME type
+            $extension   = 'jpg';        // Default extension
+
+            if (str_starts_with($base64Image, 'data:image/')) {
+                $parts     = explode(',', $base64Image);
+                $metaPart  = $parts[0]; // e.g., "data:image/png;base64"
+                $imageData = $parts[1] ?? '';
+
+                // Extract MIME type and extension
+                $mimeType  = explode(';', explode('data:', $metaPart)[1])[0]; // e.g., "image/png"
+                $extension = explode('/', $mimeType)[1] ?? 'jpg';             // e.g., "png"
+
+                // Sanitize extension
+                $allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+                if (!in_array(strtolower($extension), $allowedExtensions)) {
+                    $extension = 'jpg';
+                    $mimeType  = 'image/jpeg';
+                }
+            } else {
+                $imageData = $base64Image;
+            }
+
             // Generate a unique filename
-            $filename = 'logbook_' . time() . '_' . uniqid() . '.jpg';
-            
-            // Store the image
-            Storage::disk('public')->put($directory . '/' . $filename, base64_decode($imageData));
-            
-            // Update the data with the image URL (use storage symbolic link like avatar)
-            $processedData[$fieldName] = url('storage/logbook_images/' . $filename);
+            $filename = 'logbook_' . time() . '_' . uniqid() . '.' . strtolower($extension);
+
+            // Upload decoded image to Amazon S3 (s3_logbook disk root: logbook_images/)
+            Storage::disk('s3_logbook')->put($filename, base64_decode($imageData), [
+                'visibility'  => 'public',
+                'ContentType' => $mimeType,
+            ]);
+
+            // Replace the base64 value with the public S3 URL
+            $processedData[$fieldName] = Storage::disk('s3_logbook')->url($filename);
         }
-        
+
         return $processedData;
     }
     
@@ -601,7 +621,10 @@ class LogbookDataController extends Controller
     }
 
     /**
-     * Delete image files associated with a logbook entry.
+     * Delete image files associated with a logbook entry from Amazon S3.
+     *
+     * Only deletes files that are hosted on our S3 bucket.
+     * Files hosted elsewhere (external URLs) are not touched.
      *
      * @param  \App\Models\LogbookData  $logbookData
      * @return void
@@ -613,30 +636,30 @@ class LogbookDataController extends Controller
             $imageFields = $logbookData->template->fields->filter(function ($field) {
                 return json_decode($field->data_type) === 'image';
             })->pluck('name')->toArray();
-            
+
             if (empty($imageFields)) {
                 return;
             }
-            
-            // Delete image files
+
+            $awsBucket = env('AWS_BUCKET', '');
+
+            // Delete image files from S3
             foreach ($imageFields as $fieldName) {
-                if (isset($logbookData->data[$fieldName])) {
+                if (!empty($logbookData->data[$fieldName])) {
                     $imageUrl = $logbookData->data[$fieldName];
-                    
-                    // Extract filename from URL
-                    if (strpos($imageUrl, '/api/images/logbook/') !== false) {
-                        $filename = basename($imageUrl);
-                        $path = 'logbook_images/' . $filename;
-                        
-                        if (Storage::disk('public')->exists($path)) {
-                            Storage::disk('public')->delete($path);
+
+                    // Only delete files hosted on our S3 bucket
+                    if (str_contains($imageUrl, $awsBucket) && str_contains($imageUrl, 'amazonaws.com')) {
+                        $filename = basename(parse_url($imageUrl, PHP_URL_PATH));
+                        if (!empty($filename)) {
+                            Storage::disk('s3_logbook')->delete($filename);
                         }
                     }
                 }
             }
         } catch (\Exception $e) {
             // Log error but don't fail the deletion
-            Log::error('Failed to delete image files: ' . $e->getMessage());
+            Log::error('Failed to delete S3 image files: ' . $e->getMessage());
         }
     }
 
